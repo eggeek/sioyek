@@ -1,0 +1,43 @@
+[workspace]
+channels = ["conda-forge"]
+name = "sioyek"
+platforms = ["osx-arm64"]
+
+# Only used to download Qt. The compile itself uses Xcode clang + Apple make.
+[dependencies]
+python = "3.12.*"
+
+[pypi-dependencies]
+aqtinstall = ">=3.3.0, <4"
+
+[tasks.qt]
+description = "Download official Qt 6.7.2 (same as CI) into ./qt"
+# conda-forge's Qt has no QtTextToSpeech, which sioyek needs (and it needs QtMultimedia).
+# HOME is redirected because aqt writes a settings folder under ~/Library/Application Support.
+cmd = "HOME=$PIXI_PROJECT_ROOT/.aqt-home aqt install-qt mac desktop 6.7.2 clang_64 -m qtspeech qtmultimedia -O qt"
+outputs = ["qt/6.7.2/macos/bin/qmake"]
+
+[tasks.build]
+description = "Build build/sioyek.app"
+# PATH is limited to Qt + system tools on purpose: pixi's/Homebrew's make break mupdf's
+# library step, and their pkg-config turns on OpenSSL, which then fails to link.
+# After the build, the build date goes into Info.plist (CFBundleVersion) so builds can be told
+# apart; `sioyek --version` stays 2.0.0 since that string is in the C++ source. Info.plist is
+# covered by the code signature, so the app is signed again after the edit.
+cmd = """PATH=$PIXI_PROJECT_ROOT/qt/6.7.2/macos/bin:/usr/bin:/bin:/usr/sbin:/sbin MAKE_PARALLEL=$(sysctl -n hw.logicalcpu) bash build_mac.sh \
+  && plutil -replace CFBundleVersion -string "2.0.0-dev+$(date +%Y-%m-%d)" build/sioyek.app/Contents/Info.plist \
+  && codesign --force --deep --sign - build/sioyek.app"""
+depends-on = ["qt"]
+
+[tasks.install]
+description = "Build, replace /Applications/sioyek.app, add ~/.local/bin/sioyek"
+# A wrapper script, not a symlink: Qt finds the app's bundled resources from the real binary path.
+cmd = """rm -rf /Applications/sioyek.app && cp -R build/sioyek.app /Applications/ \
+  && mkdir -p $HOME/.local/bin \
+  && printf '#!/bin/sh\\nexec /Applications/sioyek.app/Contents/MacOS/sioyek "$@"\\n' > $HOME/.local/bin/sioyek \
+  && chmod +x $HOME/.local/bin/sioyek"""
+depends-on = ["build"]
+
+[tasks.clean]
+description = "Remove build outputs (use this instead of make -B)"
+cmd = "rm -rf build mupdf/build && git -C mupdf checkout -- ."

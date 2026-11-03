@@ -397,3 +397,10 @@ flake*
 # ctags
 tags
 .vscode
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# pixi build: downloaded Qt and aqt settings
+qt/
+.aqt-home/
